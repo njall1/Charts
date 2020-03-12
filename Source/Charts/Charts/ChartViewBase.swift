@@ -22,33 +22,60 @@ import Cocoa
 #endif
 
 @objc
-public protocol ChartViewDelegate
-{
+public protocol ChartViewDelegate {
     /// Called when a value has been selected inside the chart.
     ///
     /// - Parameters:
-    ///   - entry: The selected Entry.
-    ///   - highlight: The corresponding highlight object that contains information about the highlighted position such as dataSetIndex etc.
-    @objc optional func chartValueSelected(_ chartView: ChartViewBase, entry: ChartDataEntry, highlight: Highlight)
+    ///   - entries: The selected Entry.
+    ///   - highlights: The corresponding highlight object that contains information about the highlighted position such as dataSetIndex etc.
+    @objc
+    optional
+    func chartValueSelected(_ chartView: ChartViewBase,
+                            entry: ChartDataEntry,
+                            highlight: Highlight)
+    /// Called when a value has been selected inside the chart.
+    ///
+    /// - Parameters:
+    ///   - entries: The selected Entries.
+    ///   - highlights: The corresponding highlights object that contains information about the highlighted position such as dataSetIndex etc.
+    @objc
+    optional
+    func chartValuesSelected(_ chartView: ChartViewBase,
+                             entries: [ChartDataEntry],
+                             highlights: [Highlight])
     
     /// Called when a user stops panning between values on the chart
-    @objc optional func chartViewDidEndPanning(_ chartView: ChartViewBase)
+    @objc
+    optional
+    func chartViewDidEndPanning(_ chartView: ChartViewBase)
     
     // Called when nothing has been selected or an "un-select" has been made.
-    @objc optional func chartValueNothingSelected(_ chartView: ChartViewBase)
+    @objc
+    optional
+    func chartValueNothingSelected(_ chartView: ChartViewBase)
     
     // Callbacks when the chart is scaled / zoomed via pinch zoom gesture.
-    @objc optional func chartScaled(_ chartView: ChartViewBase, scaleX: CGFloat, scaleY: CGFloat)
+    @objc
+    optional
+    func chartScaled(_ chartView: ChartViewBase,
+                     scaleX: CGFloat,
+                     scaleY: CGFloat)
     
     // Callbacks when the chart is moved / translated via drag gesture.
-    @objc optional func chartTranslated(_ chartView: ChartViewBase, dX: CGFloat, dY: CGFloat)
+    @objc
+    optional
+    func chartTranslated(_ chartView: ChartViewBase,
+                         dX: CGFloat,
+                         dY: CGFloat)
 
     // Callbacks when Animator stops animating
-    @objc optional func chartView(_ chartView: ChartViewBase, animatorDidStop animator: Animator)
+    @objc
+    optional
+    func chartView(_ chartView: ChartViewBase,
+                   animatorDidStop animator: Animator)
 }
 
-open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
-{
+open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate {
     // MARK: - Properties
     
     /// - Returns: The object representing all x-labels, this method can be used to
@@ -503,6 +530,32 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
         {
             highlightValue(Highlight(x: x, y: y, dataSetIndex: dataSetIndex, dataIndex: dataIndex), callDelegate: callDelegate)
         }
+    }
+    
+    /// Highlights the values selected by touch gesture.
+    @objc
+    open
+    func highlightValues(_ highlights: [Highlight], callDelegate: Bool) {
+        guard !highlights.isEmpty else {
+            lastHighlighted = nil
+            highlightValues(nil)
+            if callDelegate, let delegate = delegate {
+                delegate.chartValueNothingSelected?(self)
+            }
+            return
+        }
+        
+        let entries = highlights.compactMap { _data?.entryForHighlight($0) }
+    
+        highlightValues(highlights)
+        
+        if callDelegate, let delegate = delegate {
+            // notify the listener
+            delegate.chartValuesSelected?(self, entries: entries, highlights: highlights)
+        }
+        
+        // redraw the chart
+        setNeedsDisplay()
     }
     
     /// Highlights the values represented by the provided Highlight object
