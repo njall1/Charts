@@ -132,14 +132,11 @@ final class MultipleHighlightsGestureRecognizer: UIGestureRecognizer {
             let firstTouchAffected = touches.contains(firstTouch)
             let secondTouchAffected = touches.contains(secondTouch)
             if firstTouchAffected && secondTouchAffected {
-                print("-> affected both")
                 self.gestureType = .noTouch
                 self.state = isCancelled ? .cancelled : .ended
             } else if !(firstTouchAffected || secondTouchAffected) {
-                print("-> not affected both")
                 return
             } else {
-                print("-> twoTouches to one touch!")
                 self.gestureType = .oneTouch(firstTouchAffected ? secondTouch : firstTouch)
                 self.state = .changed
             }

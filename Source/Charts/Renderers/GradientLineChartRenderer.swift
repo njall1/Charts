@@ -35,6 +35,8 @@ open class GradientLineChartRenderer: LineChartRenderer {
     private var fillColor: UIColor
     private var xBounds = XBounds()
     
+    private var chartLayer: CGLayer?
+    
     open override func drawCubicBezier(context: CGContext, dataSet: ILineChartDataSet) {
         drawBezier(context: context, dataSet: dataSet)
     }
@@ -46,8 +48,41 @@ open class GradientLineChartRenderer: LineChartRenderer {
     open override func drawLinear(context: CGContext, dataSet: ILineChartDataSet) {
         drawBezier(context: context, dataSet: dataSet)
     }
+    
+    open override func drawHighlighted(context: CGContext, indices: [Highlight]) {
+        super.drawHighlighted(context: context, indices: indices)
+        
+        guard
+            indices.count > 1,
+            let size = (dataProvider as? LineChartView)?.bounds.size,
+            let fillLayer = self.chartLayer,
+            let fillLayerContext = fillLayer.context
+        else {
+            return
+        }
+        
+        let leftHighlight = indices[0].drawX < indices[1].drawX ? indices[0] : indices[1]
+        let rightHighlight = indices[1].drawX > indices[0].drawX ? indices[1] : indices[0]
+        let fillWidth = abs(rightHighlight.drawX - leftHighlight.drawX)
+        
+        context.saveGState()
+        context.clip()
+        context.setFillColor(endColor.cgColor)
+        context.setAlpha(0.05)
+        context.fill(CGRect(
+            x: leftHighlight.drawX,
+            y: 0,
+            width: fillWidth,
+            height: fillLayer.size.height)
+        )
+        context.restoreGState()
+    }
+    
+}
 
-    private func drawBezier(context: CGContext, dataSet: ILineChartDataSet) {
+private extension GradientLineChartRenderer {
+    
+    func drawBezier(context: CGContext, dataSet: ILineChartDataSet) {
         context.saveGState()
         context.setLineCap(dataSet.lineCapType)
         drawGradientBezier(
@@ -57,17 +92,12 @@ open class GradientLineChartRenderer: LineChartRenderer {
         context.restoreGState()
     }
     
-}
-
-private extension GradientLineChartRenderer {
-    
     func makePath(context: CGContext,
                   dataSet: ILineChartDataSet,
                   size: CGSize) -> CGPath? {
         guard let dataProvider = dataProvider else { return  nil }
         
         let trans = dataProvider.getTransformer(forAxis: dataSet.axisDependency)
-        
         let phaseY = animator.phaseY
         
         xBounds.set(chart: dataProvider, dataSet: dataSet, animator: animator)
@@ -86,8 +116,7 @@ private extension GradientLineChartRenderer {
             // let the spline start
             cubicPath.move(to: CGPoint(x: CGFloat(cur.x), y: CGFloat(cur.y * phaseY)), transform: valueToPixelMatrix)
             
-            for j in xBounds.dropFirst()
-            {
+            for j in xBounds.dropFirst() {
                 prev = cur
                 cur = dataSet.entryForIndex(j)
                 
@@ -108,19 +137,6 @@ private extension GradientLineChartRenderer {
         }
         
         context.saveGState()
-        
-        if dataSet.isDrawFilledEnabled {
-            // Copy this path because we make changes to it
-            let fillPath = cubicPath.mutableCopy()
-            
-            drawCubicFill(
-                context: context,
-                dataSet: dataSet,
-                spline: fillPath!,
-                matrix: valueToPixelMatrix,
-                bounds: xBounds
-            )
-        }
         
         return cubicPath
     }
@@ -202,6 +218,8 @@ private extension GradientLineChartRenderer {
         else {
             return
         }
+        
+        self.chartLayer = chartLayer
 
         context.draw(gradientLayer, at: .zero)
         context.draw(chartLayer, at: .zero)

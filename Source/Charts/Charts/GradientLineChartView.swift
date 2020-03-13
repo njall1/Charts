@@ -17,6 +17,7 @@ open class GradientLineChartView: LineChartView {
     private let startColor: UIColor
     private let endColor: UIColor
     private let fillColor: UIColor
+    private var multipleHighlightsGestureRecognizer: MultipleHighlightsGestureRecognizer!
     
     // MARK: - Initializers
     
@@ -48,9 +49,34 @@ open class GradientLineChartView: LineChartView {
         initialize()
     }
     
+    // MARK: - Override functions
+    
     internal override func initialize() {
-        super.initialize()
-         
+        #if os(iOS)
+        self.backgroundColor = NSUIColor.clear
+        #endif
+        
+        _animator = Animator()
+        _animator.delegate = self
+        
+        _viewPortHandler = ViewPortHandler(width: bounds.size.width, height: bounds.size.height)
+        
+        chartDescription = Description()
+        
+        _legend = Legend()
+        _legendRenderer = LegendRenderer(viewPortHandler: _viewPortHandler, legend: _legend)
+        
+        _xAxis = XAxis()
+        
+        addObserver(self, forKeyPath: "bounds", options: .new, context: nil)
+        addObserver(self, forKeyPath: "frame", options: .new, context: nil)
+        
+        _leftAxisTransformer = Transformer(viewPortHandler: _viewPortHandler)
+        _rightAxisTransformer = Transformer(viewPortHandler: _viewPortHandler)
+        
+        highlighter = ChartHighlighter(chart: self)
+        
+        addMultipleHighlightsGesture()
         renderer = GradientLineChartRenderer(
             dataProvider: self,
             animator: _animator,
@@ -60,6 +86,74 @@ open class GradientLineChartView: LineChartView {
             fillColor: fillColor
         )
     }
+    
+    open override func setScaleEnabled(_ enabled: Bool) { }
+    
+}
+
+// MARK: - Custom gesture
+
+extension GradientLineChartView {
+    
+    func addMultipleHighlightsGesture() {
+        multipleHighlightsGestureRecognizer = MultipleHighlightsGestureRecognizer(
+            target: self,
+            action: #selector(processSelectionGesture(_:))
+        )
+        multipleHighlightsGestureRecognizer.delegate = self
+        
+        addGestureRecognizer(multipleHighlightsGestureRecognizer)
+    }
+    
+    @objc
+    func processSelectionGesture(_ recognizer: MultipleHighlightsGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            fallthrough
+        case .changed:
+            self.handleSelection(recognizer: recognizer)
+        case .cancelled, .ended, .failed, .possible:
+            lastHighlighted = nil
+            highlightValue(nil, callDelegate: false)
+            delegate?.chartViewDidEndPanning?(self)
+        @unknown default:
+            break
+        }
+    }
+    
+    private func handleSelection(recognizer: MultipleHighlightsGestureRecognizer) {
+        switch recognizer.gestureType {
+        case .noTouch:
+            lastHighlighted = nil
+            highlightValue(nil, callDelegate: false)
+        case .oneTouch(let touch):
+            if let h = getHighlightByTouchPoint(touch.location(in: self)) {
+                lastHighlighted = h
+                highlightValue(h, callDelegate: true)
+            }
+        case let .twoTouches(first, second):
+            guard
+                let highlight1 = getHighlightByTouchPoint(first.location(in: self)),
+                let highlight2 = getHighlightByTouchPoint(second.location(in: self))
+                else {
+                    return
+            }
+            
+            if highlight1.x == highlight2.x {
+                lastHighlighted = highlight1
+                highlightValue(highlight1, callDelegate: true)
+            } else {
+                lastHighlighted = highlight1
+                highlightValues([highlight1, highlight2], callDelegate: true)
+            }
+        }
+    }
+}
+    
+    
+// MARK: - Draw
+    
+extension GradientLineChartView {
     
     open override func draw(_ rect: CGRect) {
         super.draw(rect)
@@ -72,18 +166,15 @@ open class GradientLineChartView: LineChartView {
         // execute all drawing commands
         drawGridBackground(context: context)
 
-        if leftAxis.isEnabled
-        {
+        if leftAxis.isEnabled {
             leftYAxisRenderer.computeAxis(min: leftAxis._axisMinimum, max: leftAxis._axisMaximum, inverted: leftAxis.isInverted)
         }
         
-        if rightAxis.isEnabled
-        {
+        if rightAxis.isEnabled {
             rightYAxisRenderer.computeAxis(min: rightAxis._axisMinimum, max: rightAxis._axisMaximum, inverted: rightAxis.isInverted)
         }
         
-        if _xAxis.isEnabled
-        {
+        if _xAxis.isEnabled {
             xAxisRenderer.computeAxis(min: _xAxis._axisMinimum, max: _xAxis._axisMaximum, inverted: false)
         }
         
@@ -99,16 +190,14 @@ open class GradientLineChartView: LineChartView {
         renderer.drawData(context: context)
         
         // The renderers are responsible for clipping, to account for line-width center etc.
-        if !xAxis.drawGridLinesBehindDataEnabled
-        {
+        if !xAxis.drawGridLinesBehindDataEnabled {
             xAxisRenderer.renderGridLines(context: context)
             leftYAxisRenderer.renderGridLines(context: context)
             rightYAxisRenderer.renderGridLines(context: context)
         }
         
         // if highlighting is enabled
-        if (valuesToHighlight())
-        {
+        if (valuesToHighlight()) {
             renderer.drawHighlighted(context: context, indices: _indicesToHighlight)
         }
         
@@ -116,18 +205,15 @@ open class GradientLineChartView: LineChartView {
         
         renderer.drawExtras(context: context)
         
-        if _xAxis.isEnabled && !_xAxis.isDrawLimitLinesBehindDataEnabled
-        {
+        if _xAxis.isEnabled && !_xAxis.isDrawLimitLinesBehindDataEnabled {
             xAxisRenderer.renderLimitLines(context: context)
         }
         
-        if leftAxis.isEnabled && !leftAxis.isDrawLimitLinesBehindDataEnabled
-        {
+        if leftAxis.isEnabled && !leftAxis.isDrawLimitLinesBehindDataEnabled {
             leftYAxisRenderer.renderLimitLines(context: context)
         }
         
-        if rightAxis.isEnabled && !rightAxis.isDrawLimitLinesBehindDataEnabled
-        {
+        if rightAxis.isEnabled && !rightAxis.isDrawLimitLinesBehindDataEnabled {
             rightYAxisRenderer.renderLimitLines(context: context)
         }
         
@@ -135,17 +221,14 @@ open class GradientLineChartView: LineChartView {
         leftYAxisRenderer.renderAxisLabels(context: context)
         rightYAxisRenderer.renderAxisLabels(context: context)
 
-        if clipValuesToContentEnabled
-        {
+        if clipValuesToContentEnabled {
             context.saveGState()
             context.clip(to: _viewPortHandler.contentRect)
             
             renderer.drawValues(context: context)
             
             context.restoreGState()
-        }
-        else
-        {
+        } else {
             renderer.drawValues(context: context)
         }
 
@@ -156,27 +239,23 @@ open class GradientLineChartView: LineChartView {
         drawMarkers(context: context)
         
         // The renderers are responsible for clipping, to account for line-width center etc.
-        if xAxis.drawGridLinesBehindDataEnabled
-        {
+        if xAxis.drawGridLinesBehindDataEnabled {
             xAxisRenderer.renderGridLines(context: context)
             leftYAxisRenderer.renderGridLines(context: context)
             rightYAxisRenderer.renderGridLines(context: context)
         }
         
-        if _xAxis.isEnabled && _xAxis.isDrawLimitLinesBehindDataEnabled
-        {
+        if _xAxis.isEnabled && _xAxis.isDrawLimitLinesBehindDataEnabled {
             xAxisRenderer.renderLimitLines(context: context)
         }
         
-        if leftAxis.isEnabled && leftAxis.isDrawLimitLinesBehindDataEnabled
-        {
+        if leftAxis.isEnabled && leftAxis.isDrawLimitLinesBehindDataEnabled {
             leftYAxisRenderer.renderLimitLines(context: context)
         }
         
-        if rightAxis.isEnabled && rightAxis.isDrawLimitLinesBehindDataEnabled
-        {
+        if rightAxis.isEnabled && rightAxis.isDrawLimitLinesBehindDataEnabled {
             rightYAxisRenderer.renderLimitLines(context: context)
         }
     }
-    
+
 }
